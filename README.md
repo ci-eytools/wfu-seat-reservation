@@ -81,7 +81,7 @@ dist/
 
 首次进入账号面板扫码。登录状态会保存在本机，后续启动先验证已保存的会话，失效时再扫码。账号名从学校返回的姓名与学号生成，格式为“姓＋学号”，支持常见复姓。
 
-本地版默认代理为 http://127.0.0.1:7890，可在账号详情修改。明确使用直连：
+本地版默认代理为 `http://127.0.0.1:7890`，可在账号详情修改。明确使用直连：
 
 ~~~~bash
 ./wfuseat --proxy ""
@@ -206,7 +206,7 @@ dist/
 ./wfuseat-server --listen :9443   --tls-cert /path/to/fullchain.pem   --tls-key /path/to/privkey.pem   --config-dir /path/to/private-state
 ~~~~
 
-客户端连接 https://seat.example.com:9443。证书应被客户端系统信任，程序没有跳过证书校验的开关。
+客户端连接 `https://seat.example.com:9443`。证书应被客户端系统信任，程序没有跳过证书校验的开关。
 
 ### HTTPS 反向代理
 
