@@ -1,0 +1,54 @@
+# Local runtime data and credentials
+/work/
+/accounts/
+/server/
+/remotes/
+**/logs/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.jsonl
+*.log
+.env
+.env.*
+!.env.example
+.ssh/
+id_rsa*
+id_ed25519*
+*.pem
+*.key
+**/session.json
+**/cookies.json
+**/client.json
+*.pending
+*.har
+
+# Python and notebook output
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+build/
+wheels/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Build output
+/dist/
+/wfuseat
+/wfuseat.exe
+/wfuseat-tui
+/wfuseat-server
+*.test
+*.exe
+coverage.out
+*.prof
+
+# Editor and OS metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

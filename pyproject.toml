@@ -1,0 +1,20 @@
+[project]
+name = "wfu-seat-reservation"
+version = "0.1.0"
+description = "WFU seat reservation TUI, authenticated backend, and read-only Python learning notebooks"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pillow>=12.3.0",
+    "playwright>=1.63.0",
+    "qrcode>=8.2",
+    "requests",
+    "textual>=8.2.8",
+    "zxing-cpp>=3.1.1",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel",
+    "jupyterlab",
+]
