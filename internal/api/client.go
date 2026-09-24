@@ -57,7 +57,9 @@ func NewClient(endpoint, root string) (*Client, error) {
 		return nil, e
 	}
 	h := sha256.Sum256([]byte(base))
-	return &Client{BaseURL: base, ProfileRoot: filepath.Join(root, "remotes", hex.EncodeToString(h[:16])), HTTP: &http.Client{Timeout: 95 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil // Remote connections never inherit environment proxies.
+	return &Client{BaseURL: base, ProfileRoot: filepath.Join(root, "remotes", hex.EncodeToString(h[:16])), HTTP: &http.Client{Transport: transport, Timeout: 95 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (c *Client) Fresh() *Client {
 	return &Client{BaseURL: c.BaseURL, ProfileRoot: c.ProfileRoot, HTTP: c.HTTP}
@@ -98,7 +100,10 @@ func (c *Client) call(ctx context.Context, method, path, token, key string, in, 
 	}
 	resp, e := c.HTTP.Do(r)
 	if e != nil {
-		return errors.New("无法连接服务端，请检查地址和网络")
+		if errors.Is(e, context.Canceled) {
+			return context.Canceled
+		}
+		return errors.New("无法连接服务端，请检查地址和网络；若已开启 VPN、TUN 或系统代理，请尝试关闭后重试")
 	}
 	defer resp.Body.Close()
 	b, e := io.ReadAll(io.LimitReader(resp.Body, 4<<20))

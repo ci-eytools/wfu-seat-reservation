@@ -18,10 +18,8 @@ import (
 	"wfuseat/internal/storage"
 )
 
-// DefaultProxy matches the working local proxy configuration used by the
-// original notebook. Environment proxies are never consulted, so this is the
-// only way outbound traffic can be routed.
-const DefaultProxy = "http://127.0.0.1:7890"
+// DefaultProxy uses direct connections unless explicitly configured.
+const DefaultProxy = ""
 
 // DefaultFIDEnc and DefaultMappID mirror seat_client.SeatClient defaults.
 const (

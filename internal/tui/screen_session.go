@@ -55,7 +55,10 @@ func (m *Model) statusContentStatusLine() string {
 	if proxy == "" {
 		proxy = "直连"
 	}
-	return fmt.Sprintf("代理 %s · 服务器日期 %s · 拦截 %d 次",
+	if m.remote != nil {
+		proxy = "直连后端"
+	}
+	return fmt.Sprintf("网络 %s · 服务器日期 %s · 拦截 %d 次",
 		proxy, m.dayOrDash(), m.login.BlockedSeatRequests())
 }
 

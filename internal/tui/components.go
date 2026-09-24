@@ -140,7 +140,7 @@ func (m *Model) headerStatus() string {
 		if clock := m.serverClock(); clock != "" {
 			parts = append(parts, m.theme.MutedText.Render("服务器 "+clock))
 		}
-	} else if m.cfg.Proxy != "" {
+	} else if m.remote == nil && m.cfg.Proxy != "" {
 		parts = append(parts, m.theme.FaintText.Render("代理 "+m.clip(m.cfg.Proxy, 24)))
 	}
 	if m.session.busy {

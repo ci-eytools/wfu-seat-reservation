@@ -18,6 +18,11 @@ func Remote(ctx context.Context, root, endpoint, selected string, list, jobs boo
 	if err != nil {
 		return err
 	}
+	return remoteClient(ctx, client, selected, list, jobs)
+}
+
+func remoteClient(ctx context.Context, client *api.Client, selected string, list, jobs bool) error {
+	var err error
 	profiles := client.Profiles()
 	ids := make([]string, 0, len(profiles))
 	for id := range profiles {

@@ -95,7 +95,7 @@ func classify(err error) *AppError {
 			Kind:   kindNetwork,
 			Short:  "请求超时",
 			Detail: err.Error(),
-			Hint:   "检查代理是否可用，然后按 r 重试。",
+			Hint:   "检查地址和网络；若已开启 VPN、TUN 或系统代理，请尝试关闭后按 r 重试。",
 		}
 
 	case chaoxing.IsNetwork(err):
@@ -103,7 +103,7 @@ func classify(err error) *AppError {
 			Kind:   kindNetwork,
 			Short:  "无法连接服务",
 			Detail: err.Error(),
-			Hint:   "检查网络；若本机需经代理访问，请按 , 打开设置填写代理地址后按 r 重试。",
+			Hint:   "检查地址和网络；若已开启 VPN、TUN 或系统代理，请尝试关闭后按 r 重试。",
 		}
 
 	case chaoxing.IsOperational(err):

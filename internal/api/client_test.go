@@ -82,3 +82,23 @@ func TestCancelledStartCannotInstallLateCapability(t *testing.T) {
 		t.Fatal("late capability retained")
 	}
 }
+
+func TestRemoteClientIgnoresEnvironmentProxy(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+	t.Setenv("ALL_PROXY", "http://127.0.0.1:1")
+	c, err := NewClient("https://example.com", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := c.HTTP.Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("missing explicit transport")
+	}
+	req, _ := http.NewRequest("GET", "https://example.com/v1/health", nil)
+	if transport.Proxy != nil {
+		proxy, err := transport.Proxy(req)
+		if err != nil || proxy != nil {
+			t.Fatal("remote client inherited a proxy")
+		}
+	}
+}

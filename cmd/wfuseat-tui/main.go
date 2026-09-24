@@ -12,6 +12,9 @@ import (
 )
 
 func run() error {
+	sshTarget := flag.String("ssh", "", "通过 SSH 连接后端，例如 wfuseat-access@101.132.88.185")
+	sshKey := flag.String("ssh-key", "", "SSH 私钥路径；留空使用 OpenSSH 配置")
+	sshPort := flag.Int("ssh-port", 22, "SSH 端口")
 	server := flag.String("server", "", "指定并记住后端服务 URL；未指定时使用上次地址")
 	choose := flag.Bool("choose-server", false, "启动时打开后端地址配置界面")
 	account := flag.String("account", "", "选择已扫码的账号")
@@ -30,6 +33,12 @@ func run() error {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	if *sshTarget != "" {
+		if *server != "" || *choose {
+			return fmt.Errorf("--ssh 不能与 --server 或 --choose-server 混用")
+		}
+		return launcher.SSH(ctx, root, *sshTarget, *sshKey, *sshPort, *account, *list, *jobs)
+	}
 	endpoint, e := launcher.ResolveServer(ctx, root, *server, *choose, *list || *jobs)
 	if e != nil {
 		return e

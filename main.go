@@ -34,6 +34,9 @@ func main() {
 
 func run() error {
 	var (
+		sshTarget    = flag.String("ssh", "", "通过 SSH 连接远程后端，user@host")
+		sshKey       = flag.String("ssh-key", "", "SSH 私钥路径")
+		sshPort      = flag.Int("ssh-port", 22, "SSH 端口")
 		serve        = flag.Bool("serve", false, "运行远程后端与调度器")
 		server       = flag.String("server", "", "连接远程后端 URL；留空使用本地模式")
 		listen       = flag.String("listen", "127.0.0.1:8787", "后端监听地址")
@@ -69,6 +72,12 @@ func run() error {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	if *sshTarget != "" {
+		if *serve || *server != "" || *worker {
+			return fmt.Errorf("--ssh 不能与 --serve、--server 或 --worker 混用")
+		}
+		return launcher.SSH(ctx, root, *sshTarget, *sshKey, *sshPort, *account, *listAccounts, *jobs)
+	}
 	if (*serve && (*server != "" || *worker || *jobs || *listAccounts)) || (*server != "" && *worker) {
 		return fmt.Errorf("--serve、--server 和本地 --worker 模式不能混用")
 	}
