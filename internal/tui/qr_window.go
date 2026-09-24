@@ -187,7 +187,9 @@ $loaded.Dispose(); $stream.Dispose()
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'WFU Seat - Scan QR Code'
 $form.FormBorderStyle = 'None'
-$form.WindowState = 'Maximized'
+$form.StartPosition = 'Manual'
+$form.WindowState = 'Normal'
+$form.Bounds = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).Bounds
 $form.BackColor = [System.Drawing.Color]::White
 $form.TopMost = $true
 $form.KeyPreview = $true
@@ -196,7 +198,7 @@ $form.Add_Paint({
  $g = $_.Graphics
  $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
  $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
- $side = [int]([Math]::Min($form.ClientSize.Width, $form.ClientSize.Height) * 0.85)
+ $side = [int]([Math]::Min($form.ClientSize.Width, $form.ClientSize.Height))
  $x = [int](($form.ClientSize.Width - $side) / 2)
  $y = [int](($form.ClientSize.Height - $side) / 2)
  $g.DrawImage($bitmap, $x, $y, $side, $side)
