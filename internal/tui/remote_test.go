@@ -19,8 +19,10 @@ import (
 	"wfuseat/internal/apiserver"
 	"wfuseat/internal/chaoxing"
 	"wfuseat/internal/config"
+	"wfuseat/internal/notify"
 	"wfuseat/internal/schedule"
 	"wfuseat/internal/storage"
+	"wfuseat/internal/telegram"
 )
 
 // All school traffic terminates here, including the synthetic submit endpoint.
@@ -261,6 +263,41 @@ func TestRemoteFullChainAndTenantIsolation(t *testing.T) {
 		return schedule.Outcome{}
 	}); e != nil {
 		t.Fatal(e)
+	}
+
+	// The same committed execution result feeds the notification worker; Telegram
+	// is replaced by an in-memory sink, with no real school or chat requests.
+	reportAt := due
+	if time.Now().After(reportAt) {
+		reportAt = time.Now()
+	}
+	delivered := 0
+	tg := telegram.Settings{Enabled: true, BotToken: "123456:" + strings.Repeat("x", 35), ChatID: "123", Nickname: "小林"}
+	for i := 0; i < 2; i++ {
+		if e := notify.Poll(ctx, db, tg, reportAt.Add(2*time.Minute), func(_ context.Context, settings telegram.Settings, text string) error {
+			delivered++
+			if settings.ChatID != "123" || !strings.Contains(text, "预约成功") || !strings.Contains(text, "小林") {
+				t.Fatal("notification lost execution result")
+			}
+			return nil
+		}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if delivered != 1 {
+		t.Fatal("daily notification duplicate or missing")
+	}
+	if _, e = a.Jobs(); e != nil {
+		t.Fatal(e)
+	}
+	if status, _ := a.Get("telegram_status"); !strings.Contains(string(status), "已送达") {
+		t.Fatal("live notification status missing")
+	}
+	if _, e = b.Jobs(); e != nil {
+		t.Fatal(e)
+	}
+	if status, _ := b.Get("telegram_status"); strings.Contains(string(status), "已送达") {
+		t.Fatal("notification status crossed tenants")
 	}
 
 	// Persisted frontend credentials restore without another QR.
@@ -652,5 +689,77 @@ func TestRemoteAccountUserAgentAcrossLoginQueriesAndExecution(t *testing.T) {
 	after, _, e := config.LoadAccount(root, b.Identity().ID)
 	if e != nil || after.UserAgent != cfgB.UserAgent {
 		t.Fatal("another account UA overwritten")
+	}
+}
+
+func TestTelegramRemoteIsolationRedactionAndPersistence(t *testing.T) {
+	f := newRemoteFixture(t)
+	a := f.client(t, "20260031")
+	b := f.client(t, "20260032")
+	ctx := context.Background()
+	secret := "123456:" + strings.Repeat("x", 35)
+	tg := telegram.Settings{Enabled: true, BotToken: secret, ChatID: "1234", Nickname: "小林"}
+	if e := a.Settings(ctx, api.Settings{AllowSubmit: true, Telegram: &tg}); e != nil {
+		t.Fatal(e)
+	}
+	me, e := a.Me(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if me.Settings.Telegram == nil || me.Settings.Telegram.BotToken != "" || !me.Settings.Telegram.TokenConfigured {
+		t.Fatal("secret exposed or missing")
+	}
+	other, e := b.Me(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if other.Settings.Telegram.Enabled || other.Settings.Telegram.ChatID != "" || other.Settings.Telegram.TokenConfigured {
+		t.Fatal("tenant leak")
+	}
+	raw, e := json.Marshal(a.CachedMe())
+	if e != nil || strings.Contains(string(raw), secret) {
+		t.Fatal("cache leaked token")
+	}
+	// Saving unrelated fields retains the stored secret; server controls configured.
+	if e = a.Settings(ctx, api.Settings{AllowSubmit: true, DelayMS: 3}); e != nil {
+		t.Fatal(e)
+	}
+	stored, _, e := config.LoadAccount(filepath.Join(f.root, "data"), a.Identity().ID)
+	if e != nil || stored.Telegram.BotToken != secret {
+		t.Fatal("token lost")
+	}
+	cfg, path, e := config.LoadAccount(a.ProfileRoot, a.Identity().ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	model, e := New(cfg, path, WithRemote(a))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer model.Close()
+	cfg.Telegram = tg
+	msg := model.remoteSave(cfg)().(configSavedMsg)
+	if msg.err != nil {
+		t.Fatal(msg.err)
+	}
+	raw, e = os.ReadFile(msg.path)
+	if e != nil || strings.Contains(string(raw), secret) || msg.saved.Telegram.BotToken != "" {
+		t.Fatal("remote client persisted secret")
+	}
+	// A cleared secret cannot be forged as configured by a client.
+	forged := telegram.Settings{Enabled: true, TokenConfigured: true, ChatID: "1234"}
+	if e = b.Settings(ctx, api.Settings{AllowSubmit: true, Telegram: &forged}); e == nil {
+		t.Fatal("forged configured accepted")
+	}
+	clear := telegram.Settings{Enabled: false, ClearToken: true}
+	if e = a.Settings(ctx, api.Settings{AllowSubmit: true, Telegram: &clear}); e != nil {
+		t.Fatal(e)
+	}
+	stored, _, e = config.LoadAccount(filepath.Join(f.root, "data"), a.Identity().ID)
+	if e != nil || stored.Telegram.BotToken != "" {
+		t.Fatal("clear failed")
+	}
+	if len(f.base.seats) != 0 {
+		t.Fatal("configuration submitted seats")
 	}
 }

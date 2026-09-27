@@ -58,6 +58,7 @@ func run() error {
 		flag.PrintDefaults()
 		fmt.Fprintf(out, "\na 创建自动预订后按计划真实执行；--worker 可单独运行所有账号的调度器。\n")
 	}
+	tgFlags := servercmd.RegisterTelegram(flag.CommandLine)
 	flag.Parse()
 
 	if *configDir != "" {
@@ -82,7 +83,11 @@ func run() error {
 		return fmt.Errorf("--serve、--server 和本地 --worker 模式不能混用")
 	}
 	if *serve {
-		return servercmd.Run(ctx, root, *listen, *tlsCert, *tlsKey, *proxy)
+		tg, e := tgFlags.Resolve()
+		if e != nil {
+			return e
+		}
+		return servercmd.Run(ctx, root, *listen, *tlsCert, *tlsKey, *proxy, tg)
 	}
 	if *server != "" {
 		return launcher.Remote(ctx, root, *server, *account, *listAccounts, *jobs)
@@ -173,6 +178,7 @@ func run() error {
 	}
 
 	if *printCfg {
+		cfg.Telegram = cfg.Telegram.Public()
 		raw, err := json.MarshalIndent(cfg, "", "  ")
 		if err != nil {
 			return err

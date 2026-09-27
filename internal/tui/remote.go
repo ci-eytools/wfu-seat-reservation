@@ -57,6 +57,9 @@ func (m *Model) adoptRemoteIdentity() error {
 	settings := m.remote.CachedMe().Settings
 	m.cfg.AllowSubmit = settings.AllowSubmit
 	m.cfg.DelayMS = settings.DelayMS
+	if settings.Telegram != nil {
+		m.cfg.Telegram = settings.Telegram.Public()
+	}
 	m.settings.draft = m.cfg
 	_, e := config.Save(m.cfg)
 	return e
@@ -85,9 +88,13 @@ func (m *Model) remoteSave(cfg config.Config) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		e := client.Settings(ctx, api.Settings{AllowSubmit: cfg.AllowSubmit, DelayMS: cfg.DelayMS})
+		e := client.Settings(ctx, api.Settings{AllowSubmit: cfg.AllowSubmit, DelayMS: cfg.DelayMS, Telegram: &cfg.Telegram})
 		path := ""
 		if e == nil {
+			cfg.Telegram = cfg.Telegram.Public()
+			if saved := client.CachedMe().Settings.Telegram; saved != nil {
+				cfg.Telegram = saved.Public()
+			}
 			path, e = config.Save(cfg)
 		}
 		return configSavedMsg{path: path, err: e, account: cfg.Account, saved: cfg}

@@ -290,11 +290,12 @@ func (c *Client) Me(ctx context.Context) (Me, error) {
 	return v, e
 }
 func (c *Client) Settings(ctx context.Context, v Settings) error {
-	if e := c.call(ctx, "PUT", "/v1/settings", c.token(), "", v, nil); e != nil {
+	var saved Settings
+	if e := c.call(ctx, "PUT", "/v1/settings", c.token(), "", v, &saved); e != nil {
 		return e
 	}
 	c.mu.Lock()
-	c.cacheMe.Settings = v
+	c.cacheMe.Settings = saved
 	c.mu.Unlock()
 	return nil
 }
@@ -402,6 +403,9 @@ func (c *Client) History(id string) ([]string, error) {
 func (c *Client) Get(key string) ([]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	if key == "telegram_status" {
+		return []byte(c.cacheJobs.TelegramStatus), nil
+	}
 	if key == "worker_error" {
 		return []byte(c.cacheMe.WorkerError), nil
 	}

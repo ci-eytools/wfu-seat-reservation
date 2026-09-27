@@ -17,7 +17,12 @@ func run() error {
 	key := flag.String("tls-key", "", "HTTPS 私钥")
 	proxy := flag.String("proxy", "", "后端访问学校的代理；默认直连")
 	rootFlag := flag.String("config-dir", "", "后端数据根目录")
+	tgFlags := servercmd.RegisterTelegram(flag.CommandLine)
 	flag.Parse()
+	tg, e := tgFlags.Resolve()
+	if e != nil {
+		return e
+	}
 	if *rootFlag != "" {
 		if e := os.Setenv("WFUSEAT_CONFIG_DIR", *rootFlag); e != nil {
 			return e
@@ -29,7 +34,7 @@ func run() error {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	return servercmd.Run(ctx, root, *listen, *cert, *key, *proxy)
+	return servercmd.Run(ctx, root, *listen, *cert, *key, *proxy, tg)
 }
 
 func main() {

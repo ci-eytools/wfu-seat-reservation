@@ -1,9 +1,11 @@
-// Package api defines the versioned, credential-free client/server contract.
+// Package api defines the versioned client/server contract. School credentials
+// stay on the server; Telegram bot tokens are write-only settings.
 package api
 
 import (
 	"time"
 	"wfuseat/internal/storage"
+	"wfuseat/internal/telegram"
 )
 
 const Version = "1"
@@ -15,8 +17,9 @@ type Identity struct {
 	Student     string `json:"student"`
 }
 type Settings struct {
-	AllowSubmit bool `json:"allow_submit"`
-	DelayMS     int  `json:"delay_ms"`
+	Telegram    *telegram.Settings `json:"telegram,omitempty"`
+	AllowSubmit bool               `json:"allow_submit"`
+	DelayMS     int                `json:"delay_ms"`
 }
 type Login struct {
 	ID       string    `json:"id"`
@@ -28,13 +31,16 @@ type Login struct {
 	Expires  time.Time `json:"expires"`
 }
 type Me struct {
-	Identity    Identity `json:"identity"`
-	Settings    Settings `json:"settings"`
-	WorkerError string   `json:"worker_error,omitempty"`
+	UnifiedTelegram bool     `json:"unified_telegram,omitempty"`
+	TelegramStatus  string   `json:"telegram_status,omitempty"`
+	Identity        Identity `json:"identity"`
+	Settings        Settings `json:"settings"`
+	WorkerError     string   `json:"worker_error,omitempty"`
 }
 type Jobs struct {
-	Items  []storage.Job  `json:"items"`
-	Delays map[string]int `json:"delays"`
+	TelegramStatus string         `json:"telegram_status,omitempty"`
+	Items          []storage.Job  `json:"items"`
+	Delays         map[string]int `json:"delays"`
 }
 type JobDraft struct {
 	RoomID   int               `json:"room_id"`

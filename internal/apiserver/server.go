@@ -19,11 +19,14 @@ import (
 	"wfuseat/internal/api"
 	"wfuseat/internal/chaoxing"
 	"wfuseat/internal/config"
+	"wfuseat/internal/notify"
 	"wfuseat/internal/schedule"
 	"wfuseat/internal/storage"
+	"wfuseat/internal/telegram"
 )
 
 type Options struct {
+	Telegram notify.BatchConfig
 	Root     string
 	Proxy    string
 	FIDEnc   string
@@ -69,6 +72,9 @@ type Server struct {
 }
 
 func New(o Options) (*Server, error) {
+	if e := o.Telegram.Validate(); e != nil {
+		return nil, e
+	}
 	if o.FIDEnc == "" {
 		o.FIDEnc = config.DefaultFIDEnc
 	}
@@ -209,6 +215,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	r = r.WithContext(ctx)
 	path := r.URL.Path
+	if path == "/v1/telegram/callback" {
+		s.telegramCallback(w, r)
+		return
+	}
 	if path == "/v1/health" && r.Method == "GET" {
 		reply(w, 200, map[string]string{"version": api.Version})
 		return
@@ -261,7 +271,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if len(worker) > 0 {
 			note = "后端调度暂时暂停，请检查登录状态"
 		}
-		reply(w, 200, api.Me{Identity: a.Identity, Settings: api.Settings{AllowSubmit: cfg.AllowSubmit && db.Enabled(), DelayMS: cfg.DelayMS}, WorkerError: note})
+		tg := cfg.Telegram.Public()
+		tgStatus, _ := db.DeliveryStatus()
+		if s.opts.Telegram.Settings.Enabled {
+			tgStatus = "后端统一汇总 · 批次后 " + s.opts.Telegram.Delay.String() + " 推送"
+		}
+		reply(w, 200, api.Me{UnifiedTelegram: s.opts.Telegram.Settings.Enabled, TelegramStatus: tgStatus, Identity: a.Identity, Settings: api.Settings{AllowSubmit: cfg.AllowSubmit && db.Enabled(), DelayMS: cfg.DelayMS, Telegram: &tg}, WorkerError: note})
 	case path == "/v1/settings" && r.Method == "PUT":
 		var v api.Settings
 		if !decode(w, r, &v) {
@@ -270,6 +285,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if v.DelayMS < 0 || v.DelayMS > 60000 {
 			problem(w, 400, "延迟需要 0–60000 毫秒")
 			return
+		}
+		if v.Telegram != nil {
+			merged, err := telegram.Merge(cfg.Telegram, *v.Telegram)
+			if err != nil {
+				problem(w, 400, err.Error())
+				return
+			}
+			cfg.Telegram = merged
 		}
 		cfg.DelayMS = v.DelayMS
 		cfg.AllowSubmit = v.AllowSubmit
@@ -280,6 +303,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			problem(w, 500, "配置保存失败")
 			return
 		}
+		tg := cfg.Telegram.Public()
+		v.Telegram = &tg
 		reply(w, 200, v)
 	case path == "/v1/query" && r.Method == "POST":
 		var q chaoxing.SeatQuery
@@ -303,7 +328,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				delays[j.ID] = v.Delay
 			}
 		}
-		reply(w, 200, api.Jobs{Items: jobs, Delays: delays})
+		tgStatus, _ := db.DeliveryStatus()
+		if s.opts.Telegram.Settings.Enabled {
+			tgStatus = "后端统一汇总 · 批次后 " + s.opts.Telegram.Delay.String() + " 推送"
+		}
+		reply(w, 200, api.Jobs{Items: jobs, Delays: delays, TelegramStatus: tgStatus})
 	case path == "/v1/jobs" && r.Method == "POST":
 		s.createJob(w, r, a, cfg, db)
 	case strings.HasPrefix(path, "/v1/jobs/"):
@@ -759,7 +788,29 @@ func (s *Server) Run(ctx context.Context, addr, cert, key string) error {
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	workerDone := make(chan struct{})
-	go func() { defer close(workerDone); schedule.Serve(workerCtx, s.root()) }()
+	go func() { defer close(workerDone); schedule.Serve(workerCtx, s.root(), s.opts.Telegram.Settings.Enabled) }()
+	batchDone := make(chan struct{})
+	go func() {
+		defer close(batchDone)
+		if s.opts.Telegram.Settings.Enabled {
+			notify.ServeBatches(workerCtx, s.root(), s.auth, s.opts.Telegram, func(id string) string {
+				raw, e := s.auth.Get("account/" + id)
+				if e != nil {
+					return ""
+				}
+				var a account
+				if json.Unmarshal(raw, &a) != nil || a.Deleted {
+					return ""
+				}
+				name := []rune(a.Identity.DisplayName)
+				if len(name) > 5 {
+					return string(name[:1]) + "·" + string(name[len(name)-4:])
+				}
+				return string(name)
+			})
+		}
+	}()
+	defer func() { cancel(); <-batchDone }()
 	select {
 	case <-ctx.Done():
 		stop, c := context.WithTimeout(context.Background(), 5*time.Second)

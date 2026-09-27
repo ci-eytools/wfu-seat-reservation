@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"wfuseat/internal/chaoxing"
@@ -35,7 +36,11 @@ type settingField struct {
 var settingFields = [...]settingField{
 	{Label: "代理", Help: "留空直连；保存后下次打开账号生效。"},
 	{Label: "预订开关", Help: "关闭暂停此账号所有预订，开启后继续等待未来的开放窗口。", Kind: settingToggle},
-	{Label: "固定延迟 ms", Help: "每次任务从 0 到此上限固定延迟（含端点）；0 不延迟。范围 0–60000 ms，后续候选不重复等待。"},
+	{Label: "固定延迟 ms", Help: "每次任务按此值固定延迟；0 不延迟。范围 0–60000 ms，后续候选不重复等待。"},
+	{Label: "Telegram 推送", Help: "每日预约尝试结束后汇总；有执行或到期任务的日期推送，按北京时间。", Kind: settingToggle},
+	{Label: "Bot Token", Help: "从 @BotFather 获取；显示时隐藏。远程留空保留，输入 - 清除（需先关闭推送）。"},
+	{Label: "Chat ID", Help: "接收者数字 ID；先向机器人发送 /start。群组 ID 可为负数。"},
+	{Label: "推送称呼", Help: "消息里的个性化称呼，留空为「同学」；最多 32 字。"},
 }
 
 func newSettingsState(cfg config.Config) settingsState {
@@ -78,6 +83,8 @@ func (m *Model) settingsBodyLines(width, height int, focused bool) []string {
 		label := m.column(field.Label, labelWidth)
 		var value listCell
 		switch {
+		case m.remote != nil && m.remote.CachedMe().UnifiedTelegram && i >= 3:
+			value = m.plainCell("后端统一配置", max(width-2-labelWidth, 8))
 		case selected && m.settings.editing:
 			value = listCell{
 				text:  m.column(m.settings.input.View(), max(width-2-labelWidth, 8)),
@@ -92,6 +99,9 @@ func (m *Model) settingsBodyLines(width, height int, focused bool) []string {
 			}
 		default:
 			raw := m.settings.value(i)
+			if i == 4 && (raw != "" || m.settings.draft.Telegram.TokenConfigured) {
+				raw = "••••••••（已配置）"
+			}
 			if m.remote != nil && i == 0 {
 				raw = m.remote.BaseURL
 			}
@@ -142,6 +152,10 @@ func (m *Model) settingsCursorIsToggle() bool {
 // toggleSetting flips the focused checkbox through the same validation path as a
 // typed edit.
 func (m *Model) toggleSetting() {
+	if m.remote != nil && m.remote.CachedMe().UnifiedTelegram && m.settings.list.cursor >= 3 {
+		m.pushToast(sevInfo, "推送由后端统一配置")
+		return
+	}
 	if !m.settingsCursorIsToggle() {
 		return
 	}
@@ -171,6 +185,17 @@ func (s *settingsState) value(index int) string {
 		return "关"
 	case 2:
 		return strconv.Itoa(s.draft.DelayMS)
+	case 3:
+		if s.draft.Telegram.Enabled {
+			return "开"
+		}
+		return "关"
+	case 4:
+		return s.draft.Telegram.BotToken
+	case 5:
+		return s.draft.Telegram.ChatID
+	case 6:
+		return s.draft.Telegram.Nickname
 	}
 	return ""
 }
@@ -187,6 +212,21 @@ func (s *settingsState) apply(index int, raw string) error {
 			return fmt.Errorf("请输入 0–60000 毫秒")
 		}
 		s.draft.DelayMS = n
+	case 3:
+		s.draft.Telegram.Enabled = value == "开"
+	case 4:
+		if value == "-" {
+			s.draft.Telegram.BotToken = ""
+			s.draft.Telegram.TokenConfigured = false
+			s.draft.Telegram.ClearToken = true
+		} else if value != "" {
+			s.draft.Telegram.BotToken = value
+			s.draft.Telegram.ClearToken = false
+		}
+	case 5:
+		s.draft.Telegram.ChatID = value
+	case 6:
+		s.draft.Telegram.Nickname = value
 	}
 	return nil
 }
@@ -208,6 +248,10 @@ func (m *Model) keySettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Space):
 		m.toggleSetting()
 	case key.Matches(msg, m.keys.Enter):
+		if m.remote != nil && m.remote.CachedMe().UnifiedTelegram && m.settings.list.cursor >= 3 {
+			m.pushToast(sevInfo, "推送由后端统一配置")
+			return m, nil
+		}
 		if m.remote != nil && m.settings.list.cursor == 0 {
 			m.pushToast(sevInfo, "使用 --server 地址连接另一服务端，--server=local 使用本地")
 			return m, nil
@@ -219,7 +263,12 @@ func (m *Model) keySettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settings.editing = true
 		m.settings.err = nil
 		m.settings.status = ""
+		m.settings.input.EchoMode = textinput.EchoNormal
 		m.settings.input.SetValue(m.settings.value(m.settings.list.cursor))
+		if m.settings.list.cursor == 4 {
+			m.settings.input.EchoMode = textinput.EchoPassword
+			m.settings.input.SetValue("")
+		}
 		m.settings.input.CursorEnd()
 		return m, m.settings.input.Focus()
 	case key.Matches(msg, m.keys.Save):
@@ -234,11 +283,13 @@ func (m *Model) handleSettingsEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.settings.editing = false
 		m.settings.input.Blur()
+		m.settings.input.SetValue("")
 		return m, nil
 	case tea.KeyEnter:
 		index := m.settings.list.cursor
 
 		value := m.settings.input.Value()
+		m.settings.input.SetValue("")
 		m.settings.editing = false
 		m.settings.input.Blur()
 		if err := m.settings.apply(index, value); err != nil {

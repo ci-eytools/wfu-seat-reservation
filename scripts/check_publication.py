@@ -12,6 +12,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 RULES = {
+    "telegram-token": re.compile(rb"(?<![0-9])[0-9]{5,20}:[A-Za-z0-9_-]{30,100}"),
     "private-key": re.compile(rb"-----BEGIN (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----"),
     "github-token": re.compile(rb"(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})"),
     "jwt": re.compile(rb"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),

@@ -66,7 +66,7 @@ func (m *Model) statusContentStatusLine() string {
 // a login is in progress, and the project's own description otherwise.
 func (m *Model) statusContentBody(width, height int, focused bool) []string {
 	if m.session.phase == phaseConfirmed {
-		rows := min(height, len(settingFields))
+		rows := min(max(1, height-16), len(settingFields))
 		m.settings.list.SetHeight(rows)
 		lines := []string{m.theme.Heading.Render("账号与凭证")}
 		lines = append(lines, strings.Split(m.projectView(width, 8, ""), "\n")...)
@@ -75,12 +75,23 @@ func (m *Model) statusContentBody(width, height int, focused bool) []string {
 		if i := m.settings.list.cursor; i >= 0 && i < len(settingFields) {
 			lines = append(lines, "")
 			help := settingFields[i].Help
+			if m.remote != nil && m.remote.CachedMe().UnifiedTelegram && i >= 3 {
+				help = "后端已启用统一汇总；Bot、接收群和延迟由服务器管理员配置。"
+			}
 			if m.remote != nil && i == 0 {
 				help = "远程凭证和任务保存在此服务端；关闭 TUI 后仍由服务端执行。--server=local 返回本地。"
 			}
 			for _, line := range wrapText(help, width) {
 				lines = append(lines, m.theme.MutedText.Render(line))
 			}
+		}
+		tgStatus := ""
+		if m.db != nil {
+			b, _ := m.db.Get("telegram_status")
+			tgStatus = string(b)
+		}
+		if tgStatus != "" && (m.cfg.Telegram.Enabled || m.remote != nil && m.remote.CachedMe().UnifiedTelegram) {
+			lines = append(lines, m.theme.MutedText.Render(m.clip("推送："+tgStatus, width)))
 		}
 		if m.settings.err != nil {
 			lines = append(lines, m.theme.BadgeErr.Render(m.clip(m.settings.err.Short, width)))

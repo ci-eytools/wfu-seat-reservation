@@ -16,6 +16,7 @@ import (
 	"strings"
 	"wfuseat/internal/chaoxing"
 	"wfuseat/internal/storage"
+	"wfuseat/internal/telegram"
 )
 
 // DefaultProxy uses direct connections unless explicitly configured.
@@ -40,7 +41,8 @@ const DefaultAutoLeadSeconds = 5
 
 // Config is the persisted user configuration.
 type Config struct {
-	UserAgent string `json:"user_agent,omitempty"`
+	Telegram  telegram.Settings `json:"telegram"`
+	UserAgent string            `json:"user_agent,omitempty"`
 	// Keep the legacy JSON key so existing delay values become fixed delays.
 	DelayMS   int    `json:"delay_max_ms"`
 	Account   string `json:"-"`
@@ -146,6 +148,9 @@ func (c *Config) Normalize() {
 
 // Validate reports whether the configuration can be used.
 func (c Config) Validate() error {
+	if err := c.Telegram.Validate(); err != nil {
+		return err
+	}
 	if c.DelayMS < 0 || c.DelayMS > 60000 {
 		return fmt.Errorf("固定延迟需要 0–60000 毫秒")
 	}
@@ -224,6 +229,7 @@ func Load() (Config, string, error) {
 
 // Save writes the configuration with owner-only permissions.
 func Save(cfg Config) (string, error) {
+	cfg.Telegram.ClearToken = false
 	cfg.Normalize()
 	if err := cfg.Validate(); err != nil {
 		return "", err

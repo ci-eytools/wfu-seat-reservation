@@ -14,6 +14,7 @@ import (
 	"time"
 	"wfuseat/internal/chaoxing"
 	"wfuseat/internal/config"
+	"wfuseat/internal/notify"
 	"wfuseat/internal/storage"
 )
 
@@ -210,7 +211,7 @@ func Poll(ctx context.Context, db *storage.Store, clock string, now time.Time, e
 				j.State = "pending"
 			}
 		}
-		if err = db.Finish(j, occurrence); err != nil {
+		if err = db.Finish(j, occurrence, result.State); err != nil {
 			return err
 		}
 	}
@@ -219,7 +220,8 @@ func Poll(ctx context.Context, db *storage.Store, clock string, now time.Time, e
 
 // Serve discovers account directories; each account runs independently. SQLite
 // claims prevent double sends even if a TUI and a headless worker coexist.
-func Serve(ctx context.Context, root string) {
+func Serve(ctx context.Context, root string, unified ...bool) {
+	personal := len(unified) == 0 || !unified[0]
 	running := map[string]bool{}
 	ended := make(chan string, 32)
 	var wg sync.WaitGroup
@@ -239,7 +241,7 @@ func Serve(ctx context.Context, root string) {
 			wg.Add(1)
 			go func(id string) {
 				defer wg.Done()
-				serveAccount(ctx, root, id)
+				serveAccount(ctx, root, id, personal)
 				select {
 				case ended <- id:
 				case <-ctx.Done():
@@ -255,7 +257,7 @@ func Serve(ctx context.Context, root string) {
 		}
 	}
 }
-func serveAccount(ctx context.Context, root, id string) {
+func serveAccount(ctx context.Context, root, id string, personal bool) {
 	dir, err := storage.AccountDir(root, id)
 	if err != nil {
 		return
@@ -265,6 +267,15 @@ func serveAccount(ctx context.Context, root, id string) {
 		return
 	}
 	defer db.Close()
+	notifyCtx, stopNotify := context.WithCancel(ctx)
+	notifyDone := make(chan struct{})
+	go func() {
+		defer close(notifyDone)
+		if personal {
+			notify.Serve(notifyCtx, root, id, db)
+		}
+	}()
+	defer func() { stopNotify(); <-notifyDone }()
 	var refreshed, retryAt time.Time
 	windowReady := false
 	tick := time.NewTicker(250 * time.Millisecond)

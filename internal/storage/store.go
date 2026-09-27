@@ -85,7 +85,11 @@ func Open(dir string) (*Store, error) {
 			}
 			_, e := db.Exec(` CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY,v BLOB NOT NULL);
  CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,payload BLOB NOT NULL,state TEXT NOT NULL,next_ms INTEGER NOT NULL,lease_ms INTEGER NOT NULL DEFAULT 0);
- CREATE TABLE IF NOT EXISTS runs(job_id TEXT NOT NULL,at_ms INTEGER NOT NULL,result TEXT NOT NULL,PRIMARY KEY(job_id,at_ms));`)
+ CREATE TABLE IF NOT EXISTS runs(job_id TEXT NOT NULL,at_ms INTEGER NOT NULL,result TEXT NOT NULL,PRIMARY KEY(job_id,at_ms));
+ CREATE TABLE IF NOT EXISTS outcomes(job_id TEXT NOT NULL,at_ms INTEGER NOT NULL,payload BLOB NOT NULL,state TEXT NOT NULL,finished_ms INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(job_id,at_ms));
+ CREATE TABLE IF NOT EXISTS deliveries(day TEXT PRIMARY KEY,state TEXT NOT NULL,next_ms INTEGER NOT NULL DEFAULT 0,note TEXT NOT NULL DEFAULT '');
+ CREATE INDEX IF NOT EXISTS outcomes_at ON outcomes(at_ms);
+ CREATE TABLE IF NOT EXISTS notification_batches(k TEXT PRIMARY KEY,payload BLOB NOT NULL,at_ms INTEGER NOT NULL);`)
 			return e
 		})
 	}
@@ -197,9 +201,16 @@ func (s *Store) Claim(j Job, now time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	snapshot, err := json.Marshal(j)
+	if err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec("INSERT INTO outcomes(job_id,at_ms,payload,state) VALUES(?,?,?,'running')", j.ID, j.Next.UnixMilli(), snapshot); err != nil {
+		return false, err
+	}
 	return true, tx.Commit()
 }
-func (s *Store) Finish(j Job, occurrence time.Time) error {
+func (s *Store) Finish(j Job, occurrence time.Time, outcomeState ...string) error {
 	b, err := json.Marshal(j)
 	if err != nil {
 		return err
@@ -211,6 +222,13 @@ func (s *Store) Finish(j Job, occurrence time.Time) error {
 	defer tx.Rollback()
 	_, err = tx.Exec("UPDATE jobs SET payload=?,state=?,next_ms=?,lease_ms=0 WHERE id=? AND state='running'", b, j.State, j.Next.UnixMilli(), j.ID)
 	if err != nil {
+		return err
+	}
+	state := j.State
+	if len(outcomeState) > 0 {
+		state = outcomeState[0]
+	}
+	if _, err = tx.Exec("UPDATE outcomes SET state=?,finished_ms=? WHERE job_id=? AND at_ms=?", state, time.Now().UnixMilli(), j.ID, occurrence.UnixMilli()); err != nil {
 		return err
 	}
 	_, err = tx.Exec("UPDATE runs SET result=? WHERE job_id=? AND at_ms=?", j.Result, j.ID, occurrence.UnixMilli())
@@ -251,9 +269,23 @@ func (s *Store) RescheduleOccurrence(j Job, expected time.Time) error {
 
 // An interrupted write is never retried automatically: its remote outcome is unknown.
 func (s *Store) Recover(now time.Time) error {
-	_, err := s.db.Exec("UPDATE jobs SET state='unknown' WHERE state='running' AND lease_ms<?", now.UnixMilli())
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec("UPDATE outcomes SET state='unknown',finished_ms=? WHERE state='running' AND EXISTS(SELECT 1 FROM jobs WHERE jobs.id=outcomes.job_id AND jobs.state='running' AND jobs.lease_ms<?)", now.UnixMilli(), now.UnixMilli()); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("UPDATE runs SET result='执行中断，结果未知' WHERE result='running' AND EXISTS(SELECT 1 FROM jobs WHERE jobs.id=runs.job_id AND jobs.state='running' AND jobs.lease_ms<?)", now.UnixMilli()); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("UPDATE jobs SET state='unknown' WHERE state='running' AND lease_ms<?", now.UnixMilli()); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
+
 func (s *Store) History(id string) ([]string, error) {
 	rows, err := s.db.Query("SELECT at_ms,result FROM runs WHERE job_id=? ORDER BY at_ms DESC LIMIT 20", id)
 	if err != nil {

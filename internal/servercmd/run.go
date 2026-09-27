@@ -6,9 +6,10 @@ import (
 	"net"
 	"path/filepath"
 	"wfuseat/internal/apiserver"
+	"wfuseat/internal/notify"
 )
 
-func Run(ctx context.Context, root, listen, cert, key, proxy string) error {
+func Run(ctx context.Context, root, listen, cert, key, proxy string, telegram ...notify.BatchConfig) error {
 	if (cert == "") != (key == "") {
 		return fmt.Errorf("证书与私钥必须同时提供")
 	}
@@ -21,7 +22,14 @@ func Run(ctx context.Context, root, listen, cert, key, proxy string) error {
 		return fmt.Errorf("公网监听需要 TLS；使用反向代理时请监听 127.0.0.1")
 	}
 	data := filepath.Join(root, "server")
-	srv, e := apiserver.New(apiserver.Options{Root: data, Proxy: proxy})
+	tg := notify.BatchConfig{}
+	if len(telegram) > 0 {
+		tg = telegram[0]
+	}
+	if e = tg.Validate(); e != nil {
+		return e
+	}
+	srv, e := apiserver.New(apiserver.Options{Root: data, Proxy: proxy, Telegram: tg})
 	if e != nil {
 		return e
 	}
